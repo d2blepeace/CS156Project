@@ -1,0 +1,46 @@
+#Python general
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pyo
+
+# Virtual environment 
+venv/
+.env/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+Scripts/
+Lib/
+Include/
+pyvenv.cfg
+
+# Jupyter and notebook cache
+.ipynb_checkpoints/
+
+# Data files 
+data
+*.csv
+*.xlsx
+*.zip
+*.tar
+*.gz
+*.h5
+*.npy
+*.npz
+
+# System files
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
+.history/
+*.code-workspace
