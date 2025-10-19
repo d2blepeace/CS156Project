@@ -7,20 +7,30 @@ An AI-based motion controller that recognizes user movements using the KU-HAR da
 
 ---
 ## Project Structure
+
 CS156Project/
 ├── data/               # Datasets 
+
 │
+
 ├── docs/               # Reports, documentation, diagrams
+
 │
 ├── src/                # Source code 
+
 │
 ├── test/               # Test cases and validation scripts
+
 │
 ├── venv/               # Virtual environment (ignored by Git)
+
 │
 ├── .gitignore          # Files and folders excluded from Git
+
 ├── README.md           # Project overview and instructions
+
 └── requirements.txt    # List of dependencie
+
 ---
 ## Initial setup for the project
 
