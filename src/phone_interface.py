@@ -3,14 +3,15 @@ import time
 
 # 1. REPLACE with the URL from your phyphox app
 # Make sure to include "http://" and the port number
-base_url = "http://192.168.1.10:8080"
+base_url = "http://10.0.0.3:8080"
 
 # 2. Define the sensors you want to read.
 # These are the "buffer" names in phyphox.
 # For the "Accelerometer & Gyroscope" experiment, they are:
 # accX, accY, accZ
 # gyroX, gyroY, gyroZ
-sensors = ["accX", "accY", "accZ", "gyroX", "gyroY", "gyroZ"]
+# sensors = ["accX", "accY", "accZ", "gyroX", "gyroY", "gyroZ"]
+sensors = ["accX", "accY", "accZ"]
 
 # Construct the full URL for the /get endpoint
 # This asks phyphox for the latest value of each sensor
@@ -35,15 +36,16 @@ try:
             ay = data['buffer']['accY']['buffer'][0]
             az = data['buffer']['accZ']['buffer'][0]
 
-            gx = data['buffer']['gyroX']['buffer'][0]
-            gy = data['buffer']['gyroY']['buffer'][0]
-            gz = data['buffer']['gyroZ']['buffer'][0]
+            # gx = data['buffer']['gyroX']['buffer'][0]
+            # gy = data['buffer']['gyroY']['buffer'][0]
+            # gz = data['buffer']['gyroZ']['buffer'][0]
 
             # 6. Print the data to the console
             # \r and end='' make it update on a single line
-            print(
-                f"\rAccel: (X:{ax: >6.2f}, Y:{ay: >6.2f}, Z:{az: >6.2f}) | Gyro: (X:{gx: >6.2f}, Y:{gy: >6.2f}, Z:{gz: >6.2f})",
-                end="")
+            # print(
+            #     f"\rAccel: (X:{ax: >6.2f}, Y:{ay: >6.2f}, Z:{az: >6.2f}) | Gyro: (X:{gx: >6.2f}, Y:{gy: >6.2f}, Z:{gz: >6.2f})",
+            #     end="")
+            print(f"\rAccel: (X:{ax: >6.2f}, Y:{ay: >6.2f}, Z:{az: >6.2f})", end="")
 
         except requests.exceptions.ConnectionError:
             print(f"\nError: Could not connect to {base_url}.")
@@ -60,7 +62,7 @@ try:
             time.sleep(2.0)  # Wait longer before retrying
 
         # Poll rate (e.g., 10 times per second)
-        time.sleep(0.1)
+        time.sleep(0.01)
 
 except KeyboardInterrupt:
     print("\nStopping data collection.")
