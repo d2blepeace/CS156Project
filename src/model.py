@@ -1,7 +1,19 @@
+import os
 import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import (
+    accuracy_score, 
+    classification_report,
+    precision_score,
+    recall_score,
+    f1_score)
+from tabulate import tabulate
+
+# Path to save/load the trained model, remember to "cd CS156Project" before running scripts so that the models is in the correct relative path
+MODEL_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "models", "random_forest_model.pkl")
+)
 
 # Train a Random Forest classifier
 # X = feature matrix (each row = one gesture instance, each column = a feature)
@@ -26,20 +38,42 @@ def train_model(X, y):
     )
     # Train the RandomForest on the training data
     model.fit(X_train, y_train)
-    # predict on the test set and print accuracy
+    # predict on the test set 
     y_pred = model.predict(X_test)
-    print(f"\nAccuracy: {accuracy_score(y_test, y_pred):.4f}")
+
+    # Metrics
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, average='weighted')
+    recall = recall_score(y_test, y_pred, average='weighted')
+    f1 = f1_score(y_test, y_pred, average='weighted')
+
+    print(f"\nAccuracy: {accuracy:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall: {recall:.4f}")
+    print(f"F1-score: {f1:.4f}\n")
+
     print(classification_report(y_test, y_pred))
 
     return model
 
 # Save a trained model to storage
-def save_model(model, path="models/random_forest_model.pkl"):
+def save_model(model, path=MODEL_PATH):
+    # Ensure the models/ folder exists
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     joblib.dump(model, path)
     print(f"Model saved at {path}")
 
 # Load a trained model back into memory
 # Used for real-time gesture recognition inference  
-def load_model(path="models/random_forest_model.pkl"):
+def load_model(path=MODEL_PATH):
     return joblib.load(path)
 
+def print_model_table(y_test, y_pred):
+    metrics = [
+        ["Accuracy",  accuracy_score(y_test, y_pred)],
+        ["Precision", precision_score(y_test, y_pred, average="weighted")],
+        ["Recall",    recall_score(y_test, y_pred, average="weighted")],
+        ["F1-score",  f1_score(y_test, y_pred, average="weighted")],
+    ]
+    print("\nEVALUATION METRICS")
+    print(tabulate(metrics, headers=["Metric", "Score"], tablefmt="pretty", floatfmt=".4f"))

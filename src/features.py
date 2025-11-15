@@ -41,8 +41,6 @@ def extract_features_from_csv(csv_path: str) -> Dict[str, float]:
 # Build a feature dataset
 def build_feature_dataset(index_df: pd.DataFrame) -> pd.DataFrame:
     feature_records = []
-    # Extract statistical features from the CSV file
-    feats = extract_features_from_csv(csv_path)
     for _, row in index_df.iterrows():
         csv_path = row["file_path"]
         feats = extract_features_from_csv(csv_path)
