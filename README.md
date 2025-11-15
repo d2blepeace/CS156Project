@@ -19,6 +19,10 @@ CS156Project/
 
 │
 
+├── models/             # Trained model storage
+
+│
+
 ├── src/                # Source code 
 
 │
@@ -44,4 +48,5 @@ CS156Project/
 ```bash
 pip install -r requirements.txt
 ```
+Note: Please do this if there is new update on requirement.txt file
 [...]
