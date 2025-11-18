@@ -8,7 +8,12 @@
 
 import pandas as pd
 import numpy as np
-from data_loader import load_one_csv, load_kuhar_timeseries, BASE_DIR
+from data_loader import (
+        load_one_csv, 
+        load_kuhar_timeseries, 
+        BASE_DIR, 
+        load_kuhar_subsamples
+)
 from typing import Dict
 
 
@@ -55,3 +60,34 @@ def build_feature_dataset(index_df: pd.DataFrame) -> pd.DataFrame:
     # Convert list of dicts → DataFrame
     return pd.DataFrame(feature_records)
 
+def build_feature_dataset_from_subsamples(subsample_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    subsample_df: rows = windows, columns 0..N-1 = sensor/time,
+                  plus meta columns: subject, window_len, class_idx, class_name, serial_no
+    """
+    meta_cols = ["subject", "window_len", "class_idx", "class_name", "serial_no"]
+    sensor_cols = [c for c in subsample_df.columns if c not in meta_cols]
+
+    feature_records = []
+    for _, row in subsample_df.iterrows():
+        sensor_series = row[sensor_cols].astype(float)
+
+        feats = {
+            "mean":   sensor_series.mean(),
+            "std":    sensor_series.std(),
+            "min":    sensor_series.min(),
+            "max":    sensor_series.max(),
+            "median": sensor_series.median(),
+            "energy": np.sum(sensor_series**2) / len(sensor_series),
+        }
+
+        feats.update({
+            "class_idx":  row["class_idx"],
+            "class_name": row["class_name"],
+            "subject":    row["subject"],
+            "window_len": row["window_len"],
+            "serial_no":  row["serial_no"],
+        })
+        feature_records.append(feats)
+
+    return pd.DataFrame(feature_records)
