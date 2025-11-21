@@ -25,6 +25,10 @@ pyvenv.cfg
 # Jupyter and notebook cache
 .ipynb_checkpoints/
 
+# Model files
+models/
+*.pkl
+
 # Data files 
 data
 *.csv
