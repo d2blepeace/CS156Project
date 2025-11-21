@@ -1,12 +1,9 @@
 # test_model.py
 import sys, os
-
+from src.model import train_model, save_model
+from src.features import build_feature_dataset
+from src.data_loader import load_kuhar_timeseries, BASE_DIR
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "src"))
-from model import train_model, save_model
-from features import build_feature_dataset
-from data_loader import load_kuhar_timeseries, BASE_DIR
-
-
 
 def main():
     # Load dataset
