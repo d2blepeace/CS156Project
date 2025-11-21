@@ -1,4 +1,4 @@
-# src/visualize_walk.py
+# visualize walking accelerometer signals from all folders
 import numpy as np
 import matplotlib.pyplot as plt
 from data_loader import (
@@ -10,19 +10,20 @@ from data_loader import (
 
 FS = 25.0        # assumed sampling rate (can tweak later if you guys know exact value)
 DURATION_SEC = 10
+TARGET_CLASS = "Walk"  # change to Sit, Jump etc
 
 def main():
     # Load index from BOTH folder 1 and folder 2
     df_index = load_kuhar_timeseries_multi(BASE_DIR, MULTI_SPLIT_DIRS)
 
     # Filter for the "Walk" class
-    df_walk = df_index[df_index["class_name"] == "Walk"]
-    if df_walk.empty:
-        print("No samples found for class 'Walk'")
+    df_target = df_index[df_index["class_name"] == TARGET_CLASS]
+    if df_target.empty:
+        print("No samples found for class '{TARGET_CLASS}'")
         return
 
     # Choose the first walking sample
-    row = df_walk.iloc[0]
+    row = df_target.iloc[0]
     csv_path = row["file_path"]
 
     print(f"Visualizing WALK sample:")
