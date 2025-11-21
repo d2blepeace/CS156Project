@@ -1,7 +1,6 @@
 import os
 import joblib
 from sklearn.model_selection import train_test_split
-from sklearn.model_selection import StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
@@ -83,7 +82,7 @@ def print_model_table(y_test, y_pred):
     print("\nEVALUATION METRICS")
     print(tabulate(metrics, headers=["Metric", "Score"], tablefmt="pretty", floatfmt=".4f"))
  
-
+# Confusion matrix
 def plot_confusion_matrix(y_true, y_pred, class_names):
     cm = confusion_matrix(y_true, y_pred)
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -101,47 +100,3 @@ def plot_confusion_matrix(y_true, y_pred, class_names):
 
     plt.tight_layout()
     plt.show()
-
-def kfold_confusion_matrix(X, y, class_names, n_splits=5):
-    """
-    Train and evaluate RandomForest with Stratified K-Fold,
-    then plot an aggregated confusion matrix across all folds.
-    """
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
-
-    n_classes = len(class_names)
-    total_cm = np.zeros((n_classes, n_classes), dtype=int)
-
-    for fold_idx, (train_idx, test_idx) in enumerate(skf.split(X, y), start=1):
-        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
-
-        model = RandomForestClassifier(
-            n_estimators=120,
-            max_depth=20,
-            random_state=42,
-            n_jobs=-1
-        )
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-
-        cm = confusion_matrix(y_test, y_pred, labels=range(n_classes))
-        total_cm += cm
-        print(f"[Fold {fold_idx}] Accuracy = {accuracy_score(y_test, y_pred):.4f}")
-
-    # Plot aggregated confusion matrix
-    fig, ax = plt.subplots(figsize=(8, 6))
-    im = ax.imshow(total_cm, interpolation="nearest", aspect="auto")
-    plt.colorbar(im, ax=ax)
-    ax.set_xlabel("Predicted label")
-    ax.set_ylabel("True label")
-    ax.set_title(f"Confusion Matrix (Stratified {n_splits}-Fold CV)")
-
-    ax.set_xticks(np.arange(n_classes))
-    ax.set_yticks(np.arange(n_classes))
-    ax.set_xticklabels(class_names, rotation=90)
-    ax.set_yticklabels(class_names)
-
-    plt.tight_layout()
-    plt.show()
-
