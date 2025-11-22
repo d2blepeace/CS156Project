@@ -2,6 +2,8 @@ import os
 import joblib
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+import matplotlib
+matplotlib.use("Agg")  # use non-GUI backend (no Tk / no windows)
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 import numpy as np
@@ -83,20 +85,32 @@ def print_model_table(y_test, y_pred):
     print(tabulate(metrics, headers=["Metric", "Score"], tablefmt="pretty", floatfmt=".4f"))
  
 # Confusion matrix
-def plot_confusion_matrix(y_true, y_pred, class_names):
-    cm = confusion_matrix(y_true, y_pred)
-    fig, ax = plt.subplots(figsize=(8, 6))
-    im = ax.imshow(cm, interpolation="nearest", aspect="auto")
+def plot_confusion_matrix(y_true, y_pred, class_names, title="Confusion Matrix", save_path=None, show=True):
+    cm = confusion_matrix(y_true, y_pred, labels=range(len(class_names)))
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    im = ax.imshow(cm, interpolation="nearest", aspect="auto", cmap="Blues")
     plt.colorbar(im, ax=ax)
+
     ax.set_xlabel("Predicted label")
     ax.set_ylabel("True label")
-    ax.set_title("Confusion Matrix")
+    ax.set_title(title)
 
-    # Tick labels
     ax.set_xticks(np.arange(len(class_names)))
     ax.set_yticks(np.arange(len(class_names)))
     ax.set_xticklabels(class_names, rotation=90)
     ax.set_yticklabels(class_names)
 
     plt.tight_layout()
-    plt.show()
+
+    # Save to file if requested
+    if save_path is not None:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+
+    # Optional: show (for other scripts that still want windows)
+    if show:
+        plt.show()
+
+    plt.close(fig)
+
