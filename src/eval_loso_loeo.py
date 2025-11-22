@@ -53,7 +53,7 @@ def plot_cm(y_true, y_pred, class_names, title, out_path):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
-    print(f"[✓] Saved plot: {out_path}")
+    print(f"Saved plot: {out_path}")
 
 # LOSO
 def evaluate_loso(feature_df, model_pretty, model_module):

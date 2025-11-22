@@ -1,6 +1,6 @@
 import wx
 from phone_interface import Collect_Data_Thread
-from model import load_model
+from ml_models.random_forest import train_model, save_model, load_model
 import numpy as np
 
 # 1. REPLACE with the URL from your phyphox app

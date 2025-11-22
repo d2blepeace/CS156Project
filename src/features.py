@@ -57,7 +57,7 @@ def build_feature_dataset(index_df: pd.DataFrame) -> pd.DataFrame:
             "trial": row["trial"]
         })
         feature_records.append(feats)
-    # Convert list of dicts → DataFrame
+    # Convert list of dicts to DataFrame
     return pd.DataFrame(feature_records)
 
 def build_feature_dataset_from_subsamples(subsample_df: pd.DataFrame) -> pd.DataFrame:
