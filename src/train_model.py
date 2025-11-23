@@ -4,7 +4,7 @@ Train gesture-recognition models on KU-HAR data and save:
 - 80/20 confusion matrix to outputs/confusion_matrix_80_20_<Model>.png
 
 Usage examples:
-    py src/train_model.py --model rf
+    py src/train_model.py --model rf (random forest will be default, can be used without flag)
     py src/train_model.py --model svm
     py src/train_model.py --model dt
 """
@@ -38,7 +38,6 @@ MODEL_REGISTRY = {
     "ada": ("AdaBoost",     "ml_models.adaboost"),
     "xgb": ("XGBoost",      "ml_models.xgboost_model"),
 }
-
 
 def get_model_module(key: str):
     """Dynamically import the selected model module."""
@@ -125,6 +124,12 @@ def main():
     feature_df = pd.concat([feat_files, feat_sub], ignore_index=True)
     print(f"    -> Combined feature_df shape: {feature_df.shape}")
 
+    # Simple NaN handling: replace any missing values with column means
+    # (SVM cannot handle NaNs at all)
+    feature_df = feature_df.apply(
+        lambda col: col.fillna(col.mean()) if col.dtype != "object" else col
+    )
+    
     # Decide which columns are features vs labels/meta
     drop_cols = [
         "class_idx",

@@ -4,7 +4,8 @@ Evaluate KU-HAR models using:
 - LOEO (Leave-One-Event-Out)
 Supports multiple models
 Example use: 
-py src/eval_loso_loeo.py --model rf
+    py src/eval_loso_loeo.py --model rf
+    py src/eval_loso_loeo.py --model svm
 """
 
 import os
@@ -18,8 +19,10 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 
 from constants import CLASS_NAMES
 from data_loader import (
-    BASE_DIR, load_kuhar_timeseries_multi,
-    load_kuhar_subsamples, MULTI_SPLIT_DIRS,
+    BASE_DIR,
+    load_kuhar_timeseries_multi,
+    load_kuhar_subsamples,
+    MULTI_SPLIT_DIRS,
 )
 from features import build_feature_dataset, build_feature_dataset_from_subsamples
 
@@ -38,10 +41,11 @@ def load_model_module(key: str):
     name, path = MODEL_REGISTRY[key]
     return name, importlib.import_module(path)
 
-# PLOTTER
+# SMALL HELPERS
 def plot_cm(y_true, y_pred, class_names, title, out_path):
+    """Simple confusion-matrix plotter that saves to file."""
     cm = confusion_matrix(y_true, y_pred, labels=range(len(class_names)))
-    plt.figure(figsize=(10,8))
+    plt.figure(figsize=(10, 8))
     plt.imshow(cm, cmap="Blues", aspect="auto")
     plt.title(title)
     plt.xlabel("Predicted")
@@ -55,8 +59,31 @@ def plot_cm(y_true, y_pred, class_names, title, out_path):
     plt.close()
     print(f"Saved plot: {out_path}")
 
+def fill_numeric_nans_train_test(X_train, X_test):
+    """
+    For models like SVM that cannot handle NaNs:
+    - Compute column means on training data
+    - Fill NaNs in both train and test using those means
+    """
+    X_train = X_train.copy()
+    X_test = X_test.copy()
+
+    num_cols = X_train.select_dtypes(include=[np.number]).columns
+    means = X_train[num_cols].mean()
+
+    X_train[num_cols] = X_train[num_cols].fillna(means)
+    X_test[num_cols] = X_test[num_cols].fillna(means)
+
+    return X_train, X_test
+
 # LOSO
 def evaluate_loso(feature_df, model_pretty, model_module):
+    """
+    LOSO = Leave-One-Subject-Out
+    For each subject:
+      - Train on all other subjects
+      - Test on that subject
+    """
     print("\n[LOSO] Starting LOSO evaluation...")
 
     if "subject" not in feature_df.columns:
@@ -77,13 +104,19 @@ def evaluate_loso(feature_df, model_pretty, model_module):
     rows = []
 
     for subj in subjects:
-        test_mask = feature_df["subject"] == subj
+        test_mask = (feature_df["subject"] == subj)
         train_mask = ~test_mask
+
+        if train_mask.sum() == 0 or test_mask.sum() == 0:
+            continue
 
         X_train, X_test = X_all[train_mask], X_all[test_mask]
         y_train, y_test = y_all[train_mask], y_all[test_mask]
 
-        model = model_module.create_model()      # <--- consistent API
+        # CRITICAL: handle NaNs fold-by-fold
+        X_train, X_test = fill_numeric_nans_train_test(X_train, X_test)
+
+        model = model_module.create_model()  # all model modules must define this
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
 
@@ -107,6 +140,11 @@ def evaluate_loso(feature_df, model_pretty, model_module):
 
 # LOEO
 def evaluate_loeo(feat_files, model_pretty, model_module):
+    """
+    LOEO = Leave-One-Event-Out
+    Event is defined as (subject, letter, trial)
+    Only uses folders 1+2 (file-based data).
+    """
     print("\n[LOEO] Running LOEO evaluation...")
 
     need = ["subject", "letter", "trial"]
@@ -137,11 +175,17 @@ def evaluate_loeo(feat_files, model_pretty, model_module):
     rows = []
 
     for i, ev in enumerate(events, start=1):
-        test_mask = tmp["event_id"] == ev
+        test_mask = (tmp["event_id"] == ev)
         train_mask = ~test_mask
+
+        if train_mask.sum() == 0 or test_mask.sum() == 0:
+            continue
 
         X_train, X_test = X_all[train_mask], X_all[test_mask]
         y_train, y_test = y_all[train_mask], y_all[test_mask]
+
+        # CRITICAL: handle NaNs fold-by-fold 
+        X_train, X_test = fill_numeric_nans_train_test(X_train, X_test)
 
         model = model_module.create_model()
         model.fit(X_train, y_train)
@@ -173,7 +217,7 @@ def main():
         "--model",
         choices=list(MODEL_REGISTRY.keys()),
         default="rf",
-        help="Choose model: rf, dt, svm, nb, ada, xgb"
+        help="Choose model: rf, dt, svm, nb, ada, xgb",
     )
     args = parser.parse_args()
 
@@ -192,17 +236,26 @@ def main():
     print("[4] Building features from folder 3...")
     feat_sub = build_feature_dataset_from_subsamples(subsamples)
 
+    # (Optional) coarse NaN fill at dataset level
+    feat_files = feat_files.apply(
+        lambda col: col.fillna(col.mean()) if col.dtype != "object" else col
+    )
+    feat_sub = feat_sub.apply(
+        lambda col: col.fillna(col.mean()) if col.dtype != "object" else col
+    )
+
     feature_df = pd.concat([feat_files, feat_sub], ignore_index=True)
 
     # LOSO (all data)
     loso_acc, loso_table = evaluate_loso(feature_df, model_pretty, model_module)
-    pd.DataFrame(loso_table).to_csv(f"outputs/loso_table_{model_pretty}.csv")
+    pd.DataFrame(loso_table).to_csv(f"outputs/loso_table_{model_pretty}.csv", index=False)
 
     # LOEO (only folders 1+2)
     loeo_acc, loeo_table = evaluate_loeo(feat_files, model_pretty, model_module)
-    pd.DataFrame(loeo_table).to_csv(f"outputs/loeo_table_{model_pretty}.csv")
+    pd.DataFrame(loeo_table).to_csv(f"outputs/loeo_table_{model_pretty}.csv", index=False)
 
     print("\n=== DONE ===")
+
 
 if __name__ == "__main__":
     main()
