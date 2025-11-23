@@ -36,7 +36,7 @@ MODEL_REGISTRY = {
     "svm": ("SVM",          "ml_models.svm"),
     "nb":  ("NaiveBayes",   "ml_models.naive_bayes"),
     "ada": ("AdaBoost",     "ml_models.adaboost"),
-    "xgb": ("XGBoost",      "ml_models.xgboost_model"),
+    "xgb": ("XGBoost",      "ml_models.xgboost"),
 }
 
 def get_model_module(key: str):
