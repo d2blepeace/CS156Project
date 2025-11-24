@@ -2,6 +2,7 @@ import wx
 from phone_interface import Collect_Data_Thread
 from ml_models.random_forest import train_model, save_model, load_model
 import numpy as np
+from keybinder import execute_action
 
 # 1. REPLACE with the URL from your phyphox app
 # Make sure to include "http://" and the port number
@@ -187,6 +188,15 @@ class UIFrame(wx.Frame):
 
         # Update UI
         self.result_label.SetLabel(result_text)
+        self.trigger_key_press(result_text)
+
+    def trigger_key_press(self, action_name):
+        """
+        Handles the timing and execution of the key press
+        """
+        # We don't want to press keys for "Idle" or "Unknown" usually
+        if action_name not in ["Idle", "Unknown"]:
+            execute_action(action_name)
 
     def on_close(self, event):
         """Ensure the thread is stopped when the window closes"""
