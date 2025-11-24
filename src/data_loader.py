@@ -7,7 +7,8 @@ from constants import (CLASS_FOLDER_PATTERN, DEFAULT_SPLIT_DIR,
                        MULTI_SPLIT_DIRS, SUBSAMPLE_DIR, SUBSAMPLE_FILE, CLASS_NAMES)
 
 # Adjust if root folder for your data is elsewhere
-BASE_DIR = r"C:\Users\Administrator\Desktop\CS-156\CS156Project\data" 
+#BASE_DIR = r"C:\Users\Administrator\Desktop\CS-156\CS156Project\data"
+BASE_DIR = "C:/Users/damju/Downloads/archive/"
 
 def parse_class_from_folder(folder_name: str) -> Tuple[int, str]:
     m = re.match(CLASS_FOLDER_PATTERN, folder_name)
