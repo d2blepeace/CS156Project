@@ -131,19 +131,28 @@ def main():
     )
     
     # Decide which columns are features vs labels/meta
+    # We don't care about the gyroscope or time elapsed data columns
+    # The model should predict based on the acceleration stats only
     drop_cols = [
-        "class_idx",
-        "class_name",
-        "subject",
-        "letter",
-        "trial",
+        "class_idx", "class_name", "subject", "letter", "trial",
         "file_path",   # only exists for 1+2
         "window_len",  # only exists for 3
+        "serial_no",
+        "col0_mean", "col0_max", "col0_min", "col0_median", "col0_std", "col0_energy",
+        "mean", "max", "min", "median", "std", "energy"
     ]
+    for r in range(4, 8):
+        drop_cols.append(f"col{r}_mean")
+        drop_cols.append(f"col{r}_max")
+        drop_cols.append(f"col{r}_min")
+        drop_cols.append(f"col{r}_median")
+        drop_cols.append(f"col{r}_std")
+        drop_cols.append(f"col{r}_energy")
     drop_cols = [c for c in drop_cols if c in feature_df.columns]
 
     X = feature_df.drop(columns=drop_cols)
     y = feature_df["class_idx"]
+    print(X.columns)
 
     # 6) Train selected model (80/20 split)
     #    train_model must return: model, X_test, y_test, y_pred
