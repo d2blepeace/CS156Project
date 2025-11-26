@@ -1,11 +1,10 @@
 """
 Evaluate KU-HAR models using:
-- LOSO (Leave-One-Subject-Out)
-- LOEO (Leave-One-Event-Out)
-Supports multiple models
-Example use: 
-    py src/eval_loso_loeo.py --model rf
-    py src/eval_loso_loeo.py --model svm
+- LOSO (Leave-One-Subject-Out) only
+
+Supports multiple models.
+Examples: (check Model_registrey below for flag)
+    py src/eval_loso.py --model rf
 """
 
 import os
@@ -13,9 +12,15 @@ import argparse
 import numpy as np
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")       # <-- NO GUI backend
+matplotlib.use("Agg")       # no GUI backend
 import matplotlib.pyplot as plt
-from sklearn.metrics import accuracy_score, confusion_matrix
+
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    precision_recall_fscore_support,
+    classification_report,
+)
 
 from constants import CLASS_NAMES
 from data_loader import (
@@ -36,10 +41,11 @@ MODEL_REGISTRY = {
     "xgb": ("XGBoost",      "ml_models.xgboost"),
 }
 
+
 def load_model_module(key: str):
     import importlib
-    name, path = MODEL_REGISTRY[key]
-    return name, importlib.import_module(path)
+    pretty_name, module_path = MODEL_REGISTRY[key]
+    return pretty_name, importlib.import_module(module_path)
 
 # SMALL HELPERS
 def plot_cm(y_true, y_pred, class_names, title, out_path):
@@ -59,6 +65,7 @@ def plot_cm(y_true, y_pred, class_names, title, out_path):
     plt.close()
     print(f"Saved plot: {out_path}")
 
+
 def fill_numeric_nans_train_test(X_train, X_test):
     """
     For models like SVM that cannot handle NaNs:
@@ -76,7 +83,8 @@ def fill_numeric_nans_train_test(X_train, X_test):
 
     return X_train, X_test
 
-# LOSO
+
+# LOSO 
 def evaluate_loso(feature_df, model_pretty, model_module):
     """
     LOSO = Leave-One-Subject-Out
@@ -113,10 +121,10 @@ def evaluate_loso(feature_df, model_pretty, model_module):
         X_train, X_test = X_all[train_mask], X_all[test_mask]
         y_train, y_test = y_all[train_mask], y_all[test_mask]
 
-        # CRITICAL: handle NaNs fold-by-fold
+        # Handle NaNs fold-by-fold (needed for SVM, safe for others)
         X_train, X_test = fill_numeric_nans_train_test(X_train, X_test)
 
-        model = model_module.create_model()  # all model modules must define this
+        model = model_module.create_model()  # all model modules define this
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
 
@@ -127,89 +135,30 @@ def evaluate_loso(feature_df, model_pretty, model_module):
         all_true.append(pd.Series(y_test))
         all_pred.append(pd.Series(y_pred))
 
+    # Combine all folds
     y_true = pd.concat(all_true, ignore_index=True)
     y_pred = pd.concat(all_pred, ignore_index=True)
 
     overall_acc = accuracy_score(y_true, y_pred)
-    print(f"\n[LOSO] Overall accuracy: {overall_acc:.4f}")
+    prec_macro, rec_macro, f1_macro, _ = precision_recall_fscore_support(
+        y_true, y_pred, average="macro", zero_division=0
+    )
+
+    print("\n[LOSO] Overall metrics:")
+    print(f"  Accuracy     : {overall_acc:.4f}")
+    print(f"  Precision(m) : {prec_macro:.4f}")
+    print(f"  Recall(m)    : {rec_macro:.4f}")
+    print(f"  F1-score(m)  : {f1_macro:.4f}\n")
+
+    print("[LOSO] Classification report (per class):")
+    print(classification_report(y_true, y_pred, target_names=CLASS_NAMES))
 
     out_path = f"outputs/cm_loso_{model_pretty}.png"
     plot_cm(y_true, y_pred, CLASS_NAMES, f"LOSO – {model_pretty}", out_path)
 
+    # You can use rows DataFrame + printed metrics for your report.
     return overall_acc, rows
 
-# LOEO
-def evaluate_loeo(feat_files, model_pretty, model_module):
-    """
-    LOEO = Leave-One-Event-Out
-    Event is defined as (subject, letter, trial)
-    Only uses folders 1+2 (file-based data).
-    """
-    print("\n[LOEO] Running LOEO evaluation...")
-
-    need = ["subject", "letter", "trial"]
-    for c in need:
-        if c not in feat_files.columns:
-            raise ValueError(f"feat_files missing column '{c}'")
-
-    tmp = feat_files.dropna(subset=need).copy()
-    tmp["event_id"] = (
-        tmp["subject"].astype(str) + "_" +
-        tmp["letter"].astype(str) + "_" +
-        tmp["trial"].astype(str)
-    )
-
-    X_cols = [
-        c for c in tmp.columns
-        if c not in ["class_idx", "class_name", "subject",
-                     "letter", "trial", "file_path", "event_id"]
-    ]
-
-    X_all = tmp[X_cols]
-    y_all = tmp["class_idx"]
-    events = sorted(tmp["event_id"].unique())
-
-    print(f"[LOEO] Total events: {len(events)}")
-
-    all_true, all_pred = [], []
-    rows = []
-
-    for i, ev in enumerate(events, start=1):
-        test_mask = (tmp["event_id"] == ev)
-        train_mask = ~test_mask
-
-        if train_mask.sum() == 0 or test_mask.sum() == 0:
-            continue
-
-        X_train, X_test = X_all[train_mask], X_all[test_mask]
-        y_train, y_test = y_all[train_mask], y_all[test_mask]
-
-        # CRITICAL: handle NaNs fold-by-fold 
-        X_train, X_test = fill_numeric_nans_train_test(X_train, X_test)
-
-        model = model_module.create_model()
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-
-        acc = accuracy_score(y_test, y_pred)
-        rows.append({"event_id": ev, "n_samples": len(y_test), "accuracy": acc})
-
-        if i == 1 or i % 25 == 0 or i == len(events):
-            print(f"[LOEO] Event {i}/{len(events)} acc={acc:.4f}")
-
-        all_true.append(pd.Series(y_test))
-        all_pred.append(pd.Series(y_pred))
-
-    y_true = pd.concat(all_true, ignore_index=True)
-    y_pred = pd.concat(all_pred, ignore_index=True)
-
-    overall_acc = accuracy_score(y_true, y_pred)
-    print(f"\n[LOEO] Overall accuracy: {overall_acc:.4f}")
-
-    out_path = f"outputs/cm_loeo_{model_pretty}.png"
-    plot_cm(y_true, y_pred, CLASS_NAMES, f"LOEO – {model_pretty}", out_path)
-
-    return overall_acc, rows
 
 def main():
     parser = argparse.ArgumentParser()
@@ -236,7 +185,7 @@ def main():
     print("[4] Building features from folder 3...")
     feat_sub = build_feature_dataset_from_subsamples(subsamples)
 
-    # (Optional) coarse NaN fill at dataset level
+    # Coarse NaN fill at dataset level (still refined per-fold later)
     feat_files = feat_files.apply(
         lambda col: col.fillna(col.mean()) if col.dtype != "object" else col
     )
@@ -244,15 +193,14 @@ def main():
         lambda col: col.fillna(col.mean()) if col.dtype != "object" else col
     )
 
+    # Combine for LOSO over all folders
     feature_df = pd.concat([feat_files, feat_sub], ignore_index=True)
 
     # LOSO (all data)
     loso_acc, loso_table = evaluate_loso(feature_df, model_pretty, model_module)
-    pd.DataFrame(loso_table).to_csv(f"outputs/loso_table_{model_pretty}.csv", index=False)
-
-    # LOEO (only folders 1+2)
-    loeo_acc, loeo_table = evaluate_loeo(feat_files, model_pretty, model_module)
-    pd.DataFrame(loeo_table).to_csv(f"outputs/loeo_table_{model_pretty}.csv", index=False)
+    out_csv = f"outputs/loso_table_{model_pretty}.csv"
+    pd.DataFrame(loso_table).to_csv(out_csv, index=False)
+    print(f"[LOSO] Per-subject accuracy table saved to {out_csv}")
 
     print("\n=== DONE ===")
 
