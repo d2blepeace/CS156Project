@@ -4,9 +4,7 @@ One-off analysis for REPORT Task 5:
 - Compute time-domain features: mean, std, RMS, ZCR
 - Compute frequency-domain features: dominant freq, spectral energy, spectral entropy
 - Train a RandomForest on these features
-- Plot feature importance and print a short metrics table
-
-Does NOT change the main training pipeline.
+- Plot feature importance and save a feature table
 """
 
 import os
@@ -29,8 +27,10 @@ from constants import CLASS_NAMES
 FS = 25.0  # assumed sampling rate
 
 
-# helpers for feature extract
+#  Low-level feature helpers 
+
 def _sanitize(series: pd.Series) -> np.ndarray:
+    """Convert to float array and fill NaNs with the column mean."""
     arr = series.astype(float).to_numpy()
     if np.isnan(arr).any():
         m = np.nanmean(arr)
@@ -41,11 +41,18 @@ def _sanitize(series: pd.Series) -> np.ndarray:
 
 
 def time_features(x: np.ndarray, prefix: str) -> Dict[str, float]:
-    """mean, std, RMS, ZCR (+ min, max, median, energy)."""
+    """
+    Time-domain features:
+      - mean, std
+      - RMS
+      - ZCR (zero-crossing rate)
+      - min, max, median
+      - energy
+    """
     n = x.size
     if n == 0:
-        return {f"{prefix}_{k}": 0.0 for k in
-                ["mean", "std", "rms", "zcr", "min", "max", "median", "energy"]}
+        keys = ["mean", "std", "rms", "zcr", "min", "max", "median", "energy"]
+        return {f"{prefix}_{k}": 0.0 for k in keys}
 
     mean = float(np.mean(x))
     std = float(np.std(x))
@@ -53,6 +60,7 @@ def time_features(x: np.ndarray, prefix: str) -> Dict[str, float]:
     energy = float(np.sum(x ** 2) / n)
 
     if n > 1:
+        # sign changes between consecutive samples
         sign_changes = np.sum(np.sign(x[:-1]) * np.sign(x[1:]) < 0)
         zcr = float(sign_changes / (n - 1))
     else:
@@ -71,7 +79,12 @@ def time_features(x: np.ndarray, prefix: str) -> Dict[str, float]:
 
 
 def freq_features(x: np.ndarray, prefix: str, fs: float = FS) -> Dict[str, float]:
-    """dominant freq, spectral energy, spectral entropy."""
+    """
+    Frequency-domain features:
+      - dominant freq
+      - spectral energy
+      - spectral entropy
+    """
     n = x.size
     if n < 2:
         return {
@@ -80,19 +93,28 @@ def freq_features(x: np.ndarray, prefix: str, fs: float = FS) -> Dict[str, float
             f"{prefix}_spec_entropy": 0.0,
         }
 
+    # remove DC component
     x = x - np.mean(x)
+
+    # real FFT
     fft_vals = np.fft.rfft(x)
     power = np.abs(fft_vals) ** 2
     freqs = np.fft.rfftfreq(n, d=1.0 / fs)
 
+    # dominant frequency (ignore DC bin if possible)
     if power.sum() > 0:
-        idx_max = int(np.argmax(power[1:])) + 1 if power.size > 1 else 0
+        if power.size > 1:
+            idx_max = int(np.argmax(power[1:])) + 1
+        else:
+            idx_max = 0
         dom_freq = float(freqs[idx_max])
     else:
         dom_freq = 0.0
 
+    # spectral energy: average power
     spec_energy = float(power.mean())
 
+    # spectral entropy
     total_power = power.sum()
     if total_power <= 0:
         spec_entropy = 0.0
@@ -115,9 +137,9 @@ def extract_features_from_file(csv_path: str) -> Dict[str, float]:
     feats: Dict[str, float] = {}
 
     for idx, col in enumerate(df.columns):
+        # If the CSV columns already have names like accX, accY, use them.
         base = col if isinstance(col, str) else f"col{idx}"
         sig = _sanitize(df[col])
-
         feats.update(time_features(sig, base))
         feats.update(freq_features(sig, base, fs=FS))
 
@@ -142,7 +164,6 @@ def build_feature_dataset(index_df: pd.DataFrame) -> pd.DataFrame:
 
     return pd.DataFrame(records)
 
-
 def main():
     print("[1] Loading index from folders 1+2...")
     df_files = load_kuhar_timeseries_multi(BASE_DIR, MULTI_SPLIT_DIRS)
@@ -152,7 +173,13 @@ def main():
     feat_df = build_feature_dataset(df_files)
     print(f"    -> feat_df shape: {feat_df.shape}")
 
-    # drop meta columns
+    # Save full feature table for the report
+    os.makedirs("outputs", exist_ok=True)
+    feat_csv_path = os.path.join("outputs", "task5_features_table.csv")
+    feat_df.to_csv(feat_csv_path, index=False)
+    print(f"Saved feature table to {feat_csv_path}")
+
+    # Separate features and labels
     X = feat_df.drop(columns=["class_idx", "class_name", "file_path"])
     y = feat_df["class_idx"]
 
@@ -176,7 +203,7 @@ def main():
     print(f"\n[Task5 RF] Accuracy on 80/20 split: {acc:.4f}\n")
     print(classification_report(y_test, y_pred, target_names=CLASS_NAMES))
 
-    # feature-importance bar chart 
+    # feature-importance bar chart
     importances = rf.feature_importances_
     idx_sorted = np.argsort(importances)[::-1]
     top_k = 20  # show top 20 features
@@ -185,21 +212,16 @@ def main():
     top_names = X.columns[top_idx]
     top_vals = importances[top_idx]
 
-    os.makedirs("outputs", exist_ok=True)
     plt.figure(figsize=(10, 6))
     plt.bar(range(len(top_vals)), top_vals)
     plt.xticks(range(len(top_vals)), top_names, rotation=90)
     plt.ylabel("Importance")
-    plt.title("RandomForest Feature Importance (Task-5 feature set)")
+    plt.title("RandomForest Feature Importance")
     plt.tight_layout()
     out_path = os.path.join("outputs", "task5_feature_importance.png")
     plt.savefig(out_path, dpi=200, bbox_inches="tight")
     plt.close()
-    print(f"\nSaved feature-importance plot to {out_path}")
-
-    # save the full feature table for the report
-    feat_df.to_csv("outputs/task5_features_table.csv", index=False)
-    print("Saved feature table to outputs/task5_features_table.csv")
+    print(f"Saved feature-importance plot to {out_path}")
 
 
 if __name__ == "__main__":
