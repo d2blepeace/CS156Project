@@ -2,6 +2,7 @@ import wx
 from phone_interface import Collect_Data_Thread
 from ml_models.random_forest import train_model, save_model, load_model
 import numpy as np
+from keybinder import execute_action
 
 # 1. REPLACE with the URL from your phyphox app
 # Make sure to include "http://" and the port number
@@ -71,6 +72,38 @@ class UIFrame(wx.Frame):
         panel.SetSizer(wrapper)
         self.Center()
 
+    def extract_features(self, buffer):
+        """
+        Converts a buffer of raw [x, y, z] values into a single row of features.
+        Must match the training logic EXACTLY.
+        """
+        # Convert list of lists to a numpy array for easy math
+        # Shape becomes (Samples, 3) -> e.g., (50, 3)
+        data_array = np.array(buffer)
+
+        features = []
+
+        # Loop through the 3 columns (0=X, 1=Y, 2=Z)
+        for axis_idx in range(3):
+            axis_data = data_array[:, axis_idx]  # Get all rows for this axis
+
+            # Calculate the stats
+            _mean = np.mean(axis_data)
+            _std = np.std(axis_data)
+            _min = np.min(axis_data)
+            _max = np.max(axis_data)
+            _median = np.median(axis_data)
+
+            # Energy is often defined as sum of squares, or mean of squares
+            # Use whichever one you used in training!
+            # Here is Mean Squared Energy:
+            _energy = np.mean(axis_data ** 2)
+
+            features.extend([_mean, _std, _min, _max, _median, _energy])
+
+        # Reshape for the model: (1, 15) if you used 5 stats * 3 axes
+        return np.array(features).reshape(1, -1)
+
     def on_start_click(self, event):
         """Called when the 'Start' button is clicked"""
         if self.data_thread and self.data_thread.is_alive():
@@ -126,7 +159,7 @@ class UIFrame(wx.Frame):
                 self.gesture_buffer.append([x, y, z])
 
                 # 3. Check if we have enough data to make a prediction
-                samples = 10
+                samples = 3
                 if len(self.gesture_buffer) >= samples:
                     self.make_prediction()
                     # Clear buffer to start listening for the next gesture
@@ -141,23 +174,29 @@ class UIFrame(wx.Frame):
         if not self.model:
             return
 
-        # --- IMPORTANT: FEATURE EXTRACTION ---
-        # This logic MUST match exactly what you did in your training script.
-        # If you trained on raw flattened arrays:
-        input_data = np.array(self.gesture_buffer).flatten().reshape(1, -1)
-
-        # If you trained on calculated features (Mean, Max, etc),
-        # you must calculate them here instead of flattening.
-
+        processed_input = self.extract_features(self.gesture_buffer)
         # Make Prediction
-        prediction_index = self.model.predict(input_data)[0]
+        prediction_index = self.model.predict(processed_input)[0]
 
         # Map index to Name (Update this dictionary to match your classes)
-        class_names = {0: "Jump", 1: "Sit", 2: "Stand"}
+        class_names = {0: "Stand", 1: "Sit", 2: "Talk-sit", 3: "Talk-stand",
+                       4: "Stand-sit", 5: "Lay", 6: "Lay-stand", 7: "Pick",
+                       8: "Jump", 9: "Push-up", 10: "Sit-up", 11: "Walk",
+                       12: "Walk-backwards", 13: "Walk-circle", 14: "Run",
+                       15: "Stair-up", 16: "Stair-down", 17: "Table-tennis"}
         result_text = class_names.get(prediction_index, "Unknown")
 
         # Update UI
         self.result_label.SetLabel(result_text)
+        self.trigger_key_press(result_text)
+
+    def trigger_key_press(self, action_name):
+        """
+        Handles the timing and execution of the key press
+        """
+        # We don't want to press keys for "Idle" or "Unknown" usually
+        if action_name not in ["Idle", "Unknown"]:
+            execute_action(action_name)
 
     def on_close(self, event):
         """Ensure the thread is stopped when the window closes"""
