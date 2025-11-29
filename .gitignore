@@ -25,9 +25,6 @@ pyvenv.cfg
 # Jupyter and notebook cache
 .ipynb_checkpoints/
 
-# Trained Model files
-trained_models/
-*.pkl
 
 # Data files 
 data
