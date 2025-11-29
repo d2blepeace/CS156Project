@@ -20,6 +20,17 @@ MODEL_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "trained_models", "random_forest.pkl")
 )
 
+# DEMO 3-class trained model (Stand / Walk / Jump)
+DEMO_MODEL_PATH = os.path.abspath(
+    os.path.join(
+        os.path.dirname(__file__),
+        "..", "..",
+        "trained_models",
+        "for_demo",
+        "random_forest_demo.pkl"
+    )
+)
+
 #factory used by eval_loso_loeo 
 def create_model(
     n_estimators: int = 120,
@@ -72,6 +83,15 @@ def save_model(model, path=MODEL_PATH):
     print(f"Model saved at {path}")
 
 def load_model(path=MODEL_PATH):
+    return joblib.load(path)
+
+# For demo
+def save_demo_model(model, path=DEMO_MODEL_PATH):
+    """Save the 3-class DEMO model safely."""
+    save_model(model, path=path)
+
+def load_demo_model(path=DEMO_MODEL_PATH):
+    """Load the 3-class DEMO model easily."""
     return joblib.load(path)
 
 #  Format pretty table 
