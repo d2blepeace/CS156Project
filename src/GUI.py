@@ -1,12 +1,18 @@
 import wx
 from phone_interface import Collect_Data_Thread
-from ml_models.random_forest import train_model, save_model, load_model
+from ml_models.random_forest import train_model, save_model, load_model, load_demo_model
 import numpy as np
 from keybinder import execute_action
 
+# Use the 3-class DEMO model (Stand / Walk / Jump) if True.
+# Set False to test with the full 18-class model
+USE_DEMO_MODEL = True
 # 1. REPLACE with the URL from your phyphox app
 # Make sure to include "http://" and the port number
-base_url = "http://10.0.0.4:8080"
+base_url =  "http://192.168.0.27:8080"
+
+# Thai phyphox url: "http://192.168.0.27:8080"
+#default: "http://10.0.0.4:8080"
 
 # 2. Define the sensors you want to read.
 # These are the "buffer" names in phyphox.
@@ -20,6 +26,10 @@ sensors = ["accX", "accY", "accZ"]
 # This asks phyphox for the latest value of each sensor
 query_url = base_url + "/get?" + "&".join(sensors)
 
+# Number of samples per window to use for one prediction
+# this should match whatever you eventually use to train the model
+SAMPLES_PER_WINDOW = 50
+
 app = wx.App()
 
 class UIFrame(wx.Frame):
@@ -27,85 +37,99 @@ class UIFrame(wx.Frame):
         super().__init__(parent, title=title, size=wx.Size(1080, 720))
         panel = wx.Panel(self)
 
-        # --- LOAD THE MODEL ---
+        # LOAD THE MODEL 
+        self.model = None
         try:
-            self.model = load_model()
-            print("Model loaded successfully!")
+            if USE_DEMO_MODEL:
+                self.model = load_demo_model()
+                print("DEMO model (Stand / Walk / Jump) loaded successfully!")
+            else:
+                self.model = load_model()
+                print("Full 18-class model loaded successfully!")
         except Exception as e:
             print(f"Error loading model: {e}")
             self.model = None
 
-        # --- INITIALIZE BUFFER ---
-        # This list will temporarily hold incoming data until we have enough to predict
-        self.gesture_buffer = []
+        # Buffer for raw sensor values
+        self.gesture_buffer: list[list[float]] = []
 
-        label = wx.StaticText(panel, label="This is the beginning of the end.")
+        # UI ELEMENTS 
+        title_label = wx.StaticText(panel, label="Motion Controller Demo")
+        title_font = title_label.GetFont()
+        title_font.PointSize += 6
+        title_font.MakeBold()
+        title_label.SetFont(title_font)
 
-        # A label to display the real-time data
         self.data_label = wx.StaticText(panel, label="Click 'Start' to collect data.")
         font = self.data_label.GetFont()
         font.PointSize += 2
         self.data_label.SetFont(font)
 
-        # Result Label (To show the prediction)
         self.result_label = wx.StaticText(panel, label="Waiting for gesture...")
         result_font = self.result_label.GetFont()
         result_font.PointSize = 24
         result_font.MakeBold()
         self.result_label.SetFont(result_font)
 
-        self.data_thread = None
-        self.start_button = wx.Button(panel, label="Start Controller", size=wx.Size(200, 100))
-        self.start_button.Bind(wx.EVT_BUTTON, lambda event: self.on_start_click(event))
-        self.stop_button = wx.Button(panel, label="Stop Controller", size=wx.Size(200, 100))
-        self.stop_button.Bind(wx.EVT_BUTTON, self.on_stop_click)
-        self.stop_button.Disable()  # Disable until started
-        self.Bind(wx.EVT_CLOSE, self.on_close)  # Handle window close
+        self.data_thread: Collect_Data_Thread | None = None
 
-        wrapper = wx.GridSizer(1)
-        v_box = wx.BoxSizer(wx.VERTICAL)
-        v_box.Add(self.start_button, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 10)
-        v_box.Add(self.stop_button, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 10)
-        v_box.Add(self.data_label, 1, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 20)
-        v_box.Add(self.result_label, 1, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 20)
-        wrapper.Add(v_box, 0, wx.ALIGN_CENTER)
-        panel.SetSizer(wrapper)
+        self.start_button = wx.Button(
+            panel, label="Start Controller", size=wx.Size(200, 100)
+        )
+        self.start_button.Bind(wx.EVT_BUTTON, self.on_start_click)
+
+        self.stop_button = wx.Button(
+            panel, label="Stop Controller", size=wx.Size(200, 100)
+        )
+        self.stop_button.Bind(wx.EVT_BUTTON, self.on_stop_click)
+        self.stop_button.Disable()
+
+        self.Bind(wx.EVT_CLOSE, self.on_close)
+
+        # Layout
+        outer_sizer = wx.BoxSizer(wx.VERTICAL)
+        outer_sizer.Add(title_label, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 10)
+        outer_sizer.Add(self.start_button, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 5)
+        outer_sizer.Add(self.stop_button, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 5)
+        outer_sizer.Add(self.data_label, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 20)
+        outer_sizer.Add(self.result_label, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 10)
+
+        panel.SetSizer(outer_sizer)
         self.Center()
 
-    def extract_features(self, buffer):
+    # Feature extraction: must match training
+    def extract_features(self, buffer: list[list[float]]) -> np.ndarray:
         """
-        Converts a buffer of raw [x, y, z] values into a single row of features.
-        Must match the training logic EXACTLY.
+        Converts a buffer of raw [x, y, z] values into one feature row.
+
+        Currently: for each axis (X, Y, Z) compute:
+          mean, std, min, max, median, energy  ->  6 * 3 = 18 features
+
+        IMPORTANT: Whatever you do here must be mirrored in the training
+        script if you want the controller model to work perfectly.
         """
-        # Convert list of lists to a numpy array for easy math
-        # Shape becomes (Samples, 3) -> e.g., (50, 3)
-        data_array = np.array(buffer)
+        data_array = np.array(buffer)  # shape (samples, 3)
 
         features = []
 
-        # Loop through the 3 columns (0=X, 1=Y, 2=Z)
         for axis_idx in range(3):
-            axis_data = data_array[:, axis_idx]  # Get all rows for this axis
+            axis_data = data_array[:, axis_idx]
 
-            # Calculate the stats
             _mean = np.mean(axis_data)
             _std = np.std(axis_data)
             _min = np.min(axis_data)
             _max = np.max(axis_data)
             _median = np.median(axis_data)
-
-            # Energy is often defined as sum of squares, or mean of squares
-            # Use whichever one you used in training!
-            # Here is Mean Squared Energy:
-            _energy = np.mean(axis_data ** 2)
+            _energy = np.mean(axis_data**2)  # mean squared energy
 
             features.extend([_mean, _std, _min, _max, _median, _energy])
 
-        # Reshape for the model: (1, 15) if you used 5 stats * 3 axes
+        # shape: (1, 18)
         return np.array(features).reshape(1, -1)
 
+    # Start / Stop
     def on_start_click(self, event):
-        """Called when the 'Start' button is clicked"""
+        """Called when the 'Start Controller' button is clicked."""
         if self.data_thread and self.data_thread.is_alive():
             print("Thread already running.")
             return
@@ -113,10 +137,11 @@ class UIFrame(wx.Frame):
         print("Starting data collection thread...")
         self.gesture_buffer = []
 
-        # 6. Create and start the IMPORTED data collector thread
-        # Pass the config and the callback function to it
         self.data_thread = Collect_Data_Thread(
-            url=query_url, sensors=sensors, callback=self.on_new_data)
+            url=query_url,
+            sensors=sensors,
+            callback=self.on_new_data,
+        )
         self.data_thread.start()
 
         self.start_button.Disable()
@@ -124,84 +149,110 @@ class UIFrame(wx.Frame):
         self.data_label.SetLabel("Connecting to phyphox...")
 
     def on_stop_click(self, event):
-        """Called when the 'Stop' button is clicked"""
-        if not self.data_thread or not self.data_thread.is_alive():
-            print("Thread not running.")
-        else:
+        """Called when the 'Stop Controller' button is clicked."""
+        if self.data_thread and self.data_thread.is_alive():
             print("Stopping data collection thread...")
-            # 7. Tell the thread to stop
             self.data_thread.stop()
+        else:
+            print("Thread not running.")
 
         self.start_button.Enable()
         self.stop_button.Disable()
         self.data_label.SetLabel("Data collection stopped.")
 
-    def on_new_data(self, data):
+    # Data callback from phone thread
+    def on_new_data(self, data: dict):
         """
-        This is the callback function!
-        It runs SAFELY on the main UI thread.
+        Callback from Collect_Data_Thread.
+        Runs on the main UI thread.
         """
         if "Error" in data:
             self.data_label.SetLabel(f"Error: {data['error']}. Check console.")
             self.start_button.Enable()
             self.stop_button.Disable()
-        else:
-            # 1. Extract Raw Values
-            try:
-                x = data["accX"]
-                y = data["accY"]
-                z = data["accZ"]
+            return
 
-                # Update debug label
-                self.data_label.SetLabel(f"X: {x:.2f} | Y: {y:.2f} | Z: {z:.2f}")
+        try:
+            x = data["accX"]
+            y = data["accY"]
+            z = data["accZ"]
 
-                # 2. Add to Buffer
-                self.gesture_buffer.append([x, y, z])
+            # Show raw values for debugging
+            self.data_label.SetLabel(f"X: {x:.2f} | Y: {y:.2f} | Z: {z:.2f}")
 
-                # 3. Check if we have enough data to make a prediction
-                samples = 3
-                if len(self.gesture_buffer) >= samples:
-                    self.make_prediction()
-                    # Clear buffer to start listening for the next gesture
-                    # (Or implement a sliding window if preferred)
-                    self.gesture_buffer = []
+            # Append to buffer
+            self.gesture_buffer.append([x, y, z])
 
-            except KeyError:
-                pass
+            # If we have enough samples, run one prediction
+            if len(self.gesture_buffer) >= SAMPLES_PER_WINDOW:
+                self.make_prediction()
+                self.gesture_buffer = []  # reset for next gesture
 
+        except KeyError:
+            # If data keys are missing, silently ignore this packet
+            pass
+
+    # Prediction + key press
     def make_prediction(self):
-        """Prepares data and asks the model for an answer"""
-        if not self.model:
+        """Prepare data and ask the model for an answer."""
+        if self.model is None or len(self.gesture_buffer) == 0:
             return
 
         processed_input = self.extract_features(self.gesture_buffer)
-        # Make Prediction
         prediction_index = self.model.predict(processed_input)[0]
 
-        # Map index to Name (Update this dictionary to match your classes)
-        class_names = {0: "Stand", 1: "Sit", 2: "Talk-sit", 3: "Talk-stand",
-                       4: "Stand-sit", 5: "Lay", 6: "Lay-stand", 7: "Pick",
-                       8: "Jump", 9: "Push-up", 10: "Sit-up", 11: "Walk",
-                       12: "Walk-backwards", 13: "Walk-circle", 14: "Run",
-                       15: "Stair-up", 16: "Stair-down", 17: "Table-tennis"}
+        if USE_DEMO_MODEL:
+            # DEMO model: we trained only Stand/Walk/Jump with indices 0..2
+            class_names = {
+                0: "Stand",
+                1: "Walk",
+                2: "Jump",
+            }
+        else:
+            # Full 18-class mapping
+            class_names = {
+                0: "Stand",
+                1: "Sit",
+                2: "Talk-sit",
+                3: "Talk-stand",
+                4: "Stand-sit",
+                5: "Lay",
+                6: "Lay-stand",
+                7: "Pick",
+                8: "Jump",
+                9: "Push-up",
+                10: "Sit-up",
+                11: "Walk",
+                12: "Walk-backwards",
+                13: "Walk-circle",
+                14: "Run",
+                15: "Stair-up",
+                16: "Stair-down",
+                17: "Table-tennis",
+            }
+
         result_text = class_names.get(prediction_index, "Unknown")
 
         # Update UI
         self.result_label.SetLabel(result_text)
+
+        # Trigger mapped key if meaningful
         self.trigger_key_press(result_text)
 
-    def trigger_key_press(self, action_name):
+    def trigger_key_press(self, action_name: str):
         """
-        Handles the timing and execution of the key press
+        Map predicted action label to a key press (via keybinder).
+        Usually skip "Unknown".
         """
-        # We don't want to press keys for "Idle" or "Unknown" usually
-        if action_name not in ["Idle", "Unknown"]:
+        if action_name != "Unknown":
             execute_action(action_name)
 
+    # Window close
     def on_close(self, event):
-        """Ensure the thread is stopped when the window closes"""
-        self.on_stop_click(None)  # Politely stop the thread
-        self.Destroy()  # Close the window
+        """Ensure the thread is stopped when the window closes."""
+        self.on_stop_click(None)
+        self.Destroy()
+
 
 mainFrame = UIFrame(None, "Motion Controller")
 mainFrame.Show()
