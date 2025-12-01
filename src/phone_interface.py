@@ -93,8 +93,8 @@ class Collect_Data_Thread(threading.Thread):
                 time.sleep(2.0)
             # 5. Normal polling rate (unless we already slept due to error)
             if not self.stop_event.is_set():
-                # Poll ~10 times per second
-                self.stop_event.wait(0.1)
+                # Poll ~100 times per second
+                self.stop_event.wait(0.01)
 
         print("\nStopping data collection.")
 

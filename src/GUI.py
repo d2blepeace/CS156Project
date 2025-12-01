@@ -9,7 +9,7 @@ from keybinder import execute_action
 USE_DEMO_MODEL = True
 # 1. REPLACE with the URL from your phyphox app
 # Make sure to include "http://" and the port number
-base_url =  "http://192.168.0.27:8080"
+base_url =  "http://10.0.0.4:8080"
 
 # Thai phyphox url: "http://192.168.0.27:8080"
 #default: "http://10.0.0.4:8080"
@@ -28,7 +28,7 @@ query_url = base_url + "/get?" + "&".join(sensors)
 
 # Number of samples per window to use for one prediction
 # this should match whatever you eventually use to train the model
-SAMPLES_PER_WINDOW = 50
+SAMPLES_PER_WINDOW = 5
 
 app = wx.App()
 
