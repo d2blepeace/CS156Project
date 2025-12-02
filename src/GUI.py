@@ -3,13 +3,15 @@ from phone_interface import Collect_Data_Thread
 from ml_models.random_forest import train_model, save_model, load_model, load_demo_model
 import numpy as np
 from keybinder import execute_action
+from windowing import SlidingWindow
+from constants import WINDOW_SIZE, WINDOW_STEP_SIZE, WINDOW_PADDING, WINDOW_MAX_BUFFER_SIZE
 
 # Use the 3-class DEMO model (Stand / Walk / Jump) if True.
 # Set False to test with the full 18-class model
 USE_DEMO_MODEL = True
 # 1. REPLACE with the URL from your phyphox app
 # Make sure to include "http://" and the port number
-base_url =  "http://192.168.0.27:8080"
+base_url =  "http://192.168.0.36:8080"
 
 # Thai phyphox url: "http://192.168.0.27:8080"
 #default: "http://10.0.0.4:8080"
@@ -28,7 +30,15 @@ query_url = base_url + "/get?" + "&".join(sensors)
 
 # Number of samples per window to use for one prediction
 # this should match whatever you eventually use to train the model
-SAMPLES_PER_WINDOW = 50
+SAMPLES_PER_WINDOW = WINDOW_SIZE
+
+# Windowing configuration (imported from constants.py)
+# Step size for sliding window (stride between predictions)
+# If WINDOW_STEP_SIZE == SAMPLES_PER_WINDOW: non-overlapping windows
+# If WINDOW_STEP_SIZE < SAMPLES_PER_WINDOW: overlapping windows (more frequent predictions)
+SLIDING_WINDOW_STEP = WINDOW_STEP_SIZE
+SLIDING_WINDOW_PADDING = WINDOW_PADDING
+SLIDING_WINDOW_MAX_BUFFER = WINDOW_MAX_BUFFER_SIZE
 
 app = wx.App()
 
@@ -50,8 +60,14 @@ class UIFrame(wx.Frame):
             print(f"Error loading model: {e}")
             self.model = None
 
-        # Buffer for raw sensor values
-        self.gesture_buffer: list[list[float]] = []
+        # Initialize sliding window for real-time predictions
+        self.window = SlidingWindow(
+            window_size=SAMPLES_PER_WINDOW,
+            step_size=SLIDING_WINDOW_STEP,
+            padding_strategy=SLIDING_WINDOW_PADDING,
+            max_buffer_size=SLIDING_WINDOW_MAX_BUFFER,
+        )
+        print(f"Initialized sliding window: {self.window}")
 
         # UI ELEMENTS 
         title_label = wx.StaticText(panel, label="Motion Controller Demo")
@@ -135,7 +151,7 @@ class UIFrame(wx.Frame):
             return
 
         print("Starting data collection thread...")
-        self.gesture_buffer = []
+        self.window.reset()  # Clear window buffer for fresh predictions
 
         self.data_thread = Collect_Data_Thread(
             url=query_url,
@@ -165,6 +181,9 @@ class UIFrame(wx.Frame):
         """
         Callback from Collect_Data_Thread.
         Runs on the main UI thread.
+        
+        Each incoming sample is added to the sliding window.
+        When a complete window is ready, a prediction is made automatically.
         """
         if "Error" in data:
             self.data_label.SetLabel(f"Error: {data['error']}. Check console.")
@@ -178,66 +197,87 @@ class UIFrame(wx.Frame):
             z = data["accZ"]
 
             # Show raw values for debugging
-            self.data_label.SetLabel(f"X: {x:.2f} | Y: {y:.2f} | Z: {z:.2f}")
+            self.data_label.SetLabel(
+                f"X: {x:.2f} | Y: {y:.2f} | Z: {z:.2f} | "
+                f"Buffer: {self.window.buffer_size}/{SAMPLES_PER_WINDOW}"
+            )
 
-            # Append to buffer
-            self.gesture_buffer.append([x, y, z])
+            # Add sample to sliding window
+            self.window.add_sample([x, y, z])
 
-            # If we have enough samples, run one prediction
-            if len(self.gesture_buffer) >= SAMPLES_PER_WINDOW:
-                self.make_prediction()
-                self.gesture_buffer = []  # reset for next gesture
+            # If we have enough samples for a prediction window, make one
+            if self.window.is_ready:
+                self.make_prediction_from_window()
+                self.window.advance()  # Slide window by step_size samples
 
         except KeyError:
             # If data keys are missing, silently ignore this packet
             pass
 
     # Prediction + key press
-    def make_prediction(self):
-        """Prepare data and ask the model for an answer."""
-        if self.model is None or len(self.gesture_buffer) == 0:
+    def make_prediction_from_window(self):
+        """
+        Extract features from the current sliding window and make a prediction.
+        
+        This is called automatically when a window is ready in on_new_data.
+        """
+        if self.model is None:
             return
 
-        processed_input = self.extract_features(self.gesture_buffer)
-        prediction_index = self.model.predict(processed_input)[0]
+        try:
+            # Get the current window as numpy array (window_size, 3)
+            window_data = self.window.get_current_window()
+            
+            # Convert to list format for feature extraction
+            window_list = window_data.tolist()
+            
+            # Extract features from the window
+            processed_input = self.extract_features(window_list)
+            
+            # Get prediction
+            prediction_index = self.model.predict(processed_input)[0]
 
-        if USE_DEMO_MODEL:
-            # DEMO model: we trained only Stand/Walk/Jump with indices 0..2
-            class_names = {
-                0: "Stand",
-                1: "Walk",
-                2: "Jump",
-            }
-        else:
-            # Full 18-class mapping
-            class_names = {
-                0: "Stand",
-                1: "Sit",
-                2: "Talk-sit",
-                3: "Talk-stand",
-                4: "Stand-sit",
-                5: "Lay",
-                6: "Lay-stand",
-                7: "Pick",
-                8: "Jump",
-                9: "Push-up",
-                10: "Sit-up",
-                11: "Walk",
-                12: "Walk-backwards",
-                13: "Walk-circle",
-                14: "Run",
-                15: "Stair-up",
-                16: "Stair-down",
-                17: "Table-tennis",
-            }
+            if USE_DEMO_MODEL:
+                # DEMO model: we trained only Stand/Walk/Jump with indices 0..2
+                class_names = {
+                    0: "Stand",
+                    1: "Walk",
+                    2: "Jump",
+                }
+            else:
+                # Full 18-class mapping
+                class_names = {
+                    0: "Stand",
+                    1: "Sit",
+                    2: "Talk-sit",
+                    3: "Talk-stand",
+                    4: "Stand-sit",
+                    5: "Lay",
+                    6: "Lay-stand",
+                    7: "Pick",
+                    8: "Jump",
+                    9: "Push-up",
+                    10: "Sit-up",
+                    11: "Walk",
+                    12: "Walk-backwards",
+                    13: "Walk-circle",
+                    14: "Run",
+                    15: "Stair-up",
+                    16: "Stair-down",
+                    17: "Table-tennis",
+                }
 
-        result_text = class_names.get(prediction_index, "Unknown")
+            result_text = class_names.get(prediction_index, "Unknown")
 
-        # Update UI
-        self.result_label.SetLabel(result_text)
+            # Update UI
+            self.result_label.SetLabel(result_text)
 
-        # Trigger mapped key if meaningful
-        self.trigger_key_press(result_text)
+            # Trigger mapped key if meaningful
+            self.trigger_key_press(result_text)
+        
+        except Exception as e:
+            print(f"Error during prediction: {e}")
+            self.result_label.SetLabel("Prediction Error")
 
     def trigger_key_press(self, action_name: str):
         """
